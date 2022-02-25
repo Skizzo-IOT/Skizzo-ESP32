@@ -6,7 +6,7 @@
 #include "Grove_Motor_Driver_TB6612FNG.h"
 #include <Wire.h>
 
-//Camera
+// Camera
 #define CAMERA_MODEL_AI_THINKER // Has PSRAM
 #include "camera_pins.h"
 
@@ -16,16 +16,16 @@
 MotorDriver motor;
 
 // Socket
-const char *hostname = "192.168.1.57";
+const char *hostname = "192.168.43.214";
 const int port = 3000;
 
 WebSocketsClient webSocket;
 
-// const char *ssid = "miNetwork";
-// const char *password = "mikamika";
+const char *ssid = "miNetwork";
+const char *password = "mikamika";
 
-const char *ssid = "lolosaint";
-const char *password = "88C9BCD885";
+// const char *ssid = "lolosaint";
+// const char *password = "88C9BCD885";
 
 unsigned long messageInterval = 5000;
 bool connected = false;
@@ -143,7 +143,8 @@ void setupSocket()
   // socket.setAuthorization("username", "password");
 }
 
-void setupCamera() {
+void setupCamera()
+{
   DEBUG_SERIAL.println("Début de l'initialisation de la camera");
 
   camera_config_t config;
@@ -168,26 +169,9 @@ void setupCamera() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  // if PSRAM IC present, init with UXGA resolution and higher JPEG quality
-  //                      for larger pre-allocated frame buffer.
-  if (psramFound())
-  {
-    config.frame_size = FRAMESIZE_UXGA;
-    config.jpeg_quality = 10;
-    config.fb_count = 2;
-  }
-  else
-  {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-    // config.fb_location = CAMERA_FB_IN_DRAM;
-  }
-
-#if defined(CAMERA_MODEL_ESP_EYE)
-  pinMode(13, INPUT_PULLUP);
-  pinMode(14, INPUT_PULLUP);
-#endif
+  config.frame_size = FRAMESIZE_CIF; // FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
+  config.jpeg_quality = 10;
+  config.fb_count = 2;
 
   // camera init
   esp_err_t err = esp_camera_init(&config);
@@ -197,22 +181,23 @@ void setupCamera() {
     return;
   }
 
-  sensor_t *s = esp_camera_sensor_get();
-  // initial sensors are flipped vertically and colors are a bit saturated
-  if (s->id.PID == OV3660_PID)
-  {
-    s->set_vflip(s, 1);       // flip it back
-    s->set_brightness(s, 1);  // up the brightness just a bit
-    s->set_saturation(s, -2); // lower the saturation
-  }
-  // drop down frame size for higher initial frame rate
-  s->set_framesize(s, FRAMESIZE_QVGA);
+  //   sensor_t *s = esp_camera_sensor_get();
+  //   // initial sensors are flipped vertically and colors are a bit saturated
+  //   if (s->id.PID == OV3660_PID)
+  //   {
+  //     s->set_vflip(s, 1);       // flip it back
+  //     s->set_brightness(s, 1);  // up the brightness just a bit
+  //     s->set_saturation(s, -2); // lower the saturation
+  //   }
+  //   // drop down frame size for higher initial frame rate
+  //   s->set_framesize(s, FRAMESIZE_QVGA);
 
-#if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
-  s->set_vflip(s, 1);
-  s->set_hmirror(s, 1);
-#endif
+  // #if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
+  //   s->set_vflip(s, 1);
+  //   s->set_hmirror(s, 1);
+  // #endif
 
+  // startCameraServer();
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
@@ -235,8 +220,6 @@ void setup()
   //  DEBUG_SERIAL.setDebugOutput(true);
 
   DEBUG_SERIAL.println();
-  DEBUG_SERIAL.println();
-  DEBUG_SERIAL.println();
   DEBUG_SERIAL.println("Start");
 
   searchWifi();
@@ -255,6 +238,18 @@ void loop()
     DEBUG_SERIAL.println("[WSc] SENT: Simple js client message!!");
     webSocket.sendTXT("Simple js client message!!");
     lastUpdate = millis();
+
+    camera_fb_t *fb = NULL;
+    fb = esp_camera_fb_get();
+    if (!fb)
+    {
+      Serial.println("Camera capture failed");
+      return;
+    }
+    else
+    {
+      Serial.println("oui");
+    }
   }
 
   // Serial.println("Test");
