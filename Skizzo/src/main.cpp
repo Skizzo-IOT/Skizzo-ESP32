@@ -5,6 +5,7 @@
 
 #include "Grove_Motor_Driver_TB6612FNG.h"
 #include <Wire.h>
+#include <ArduinoJson.h>
 
 // Camera
 #define CAMERA_MODEL_AI_THINKER // Has PSRAM
@@ -14,9 +15,11 @@
 // Numéro de port auquel est branchée la LED servant de flash.
 #define PORT_LED_FLASH 4
 MotorDriver motor;
+int directionX = 0;
+int directionY = 0;
 
 // Socket
-const char *hostname = "192.168.43.214";
+const char *hostname = "192.168.43.104";
 const int port = 3000;
 
 WebSocketsClient webSocket;
@@ -27,8 +30,9 @@ const char *password = "mikamika";
 // const char *ssid = "lolosaint";
 // const char *password = "88C9BCD885";
 
-unsigned long messageInterval = 5000;
-bool connected = false;
+
+bool isSocketConnected = false;
+bool isCameraConnected = false;
 
 #define DEBUG_SERIAL Serial
 
@@ -59,12 +63,12 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length)
   {
   case WStype_DISCONNECTED:
     DEBUG_SERIAL.printf("[WSc] Disconnected!\n");
-    connected = false;
+    isSocketConnected = false;
     break;
   case WStype_CONNECTED:
   {
     DEBUG_SERIAL.printf("[WSc] Connected to url: %s\n", payload);
-    connected = true;
+    isSocketConnected = true;
 
     // send message to server when Connected
     DEBUG_SERIAL.println("[WSc] SENT: Connected");
@@ -72,7 +76,25 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length)
   }
   break;
   case WStype_TEXT:
-    DEBUG_SERIAL.printf("[WSc] RESPONSE: %s\n", payload);
+  {
+        DEBUG_SERIAL.printf("[WSc] RESPONSE: %s\n", payload);
+
+    StaticJsonDocument<200> doc;
+    // Deserialize the JSON document
+    DeserializationError error = deserializeJson(doc, payload);
+
+    // Test if parsing succeeds.
+    if (error) {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(error.f_str());
+      return;
+    }
+
+    if(doc["type"] == "direction") {
+      directionX = doc["directionX"];
+      directionY = doc["directionY"];
+    }
+  }
     break;
   case WStype_BIN:
     DEBUG_SERIAL.printf("[WSc] get binary length: %u\n", length);
@@ -201,21 +223,23 @@ void setupCamera()
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
+  isCameraConnected = true;
 }
 
 void setupMotor()
 {
+  DEBUG_SERIAL.println("Début de l'initialisation des moteurs...");
   // join I2C bus (I2Cdev library doesn't do this automatically)
   Wire.begin(14, 15);
   motor.init();
   pinMode(PORT_LED_FLASH, OUTPUT);
+  DEBUG_SERIAL.println("Moteurs initialisés !");
 }
-
-void startCameraServer();
 
 void setup()
 {
   DEBUG_SERIAL.begin(115200);
+  while (!Serial) continue;
 
   //  DEBUG_SERIAL.setDebugOutput(true);
 
@@ -225,38 +249,43 @@ void setup()
   searchWifi();
   setupWifi();
   setupSocket();
-  setupCamera();
-  // setupMotor();
+  // setupCamera();
+  setupMotor();
 }
 
-unsigned long lastUpdate = millis();
-void loop()
-{
-  webSocket.loop();
-  if (connected && lastUpdate + messageInterval < millis())
-  {
-    DEBUG_SERIAL.println("[WSc] SENT: Simple js client message!!");
-    webSocket.sendTXT("Simple js client message!!");
-    lastUpdate = millis();
+void loopMotor() {
+  int16_t speed = 255;
+  int16_t currentLeftMotorSpeed = 0;
+  int16_t currentRightMotorSpeed = 0;
 
-    camera_fb_t *fb = NULL;
-    fb = esp_camera_fb_get();
-    if (!fb)
-    {
-      Serial.println("Camera capture failed");
-      return;
+  //Si directionY < 0 -> on veut reculer 
+  //Si directionY > 0 -> on veut avancer
+  currentLeftMotorSpeed = directionY * speed;
+  currentRightMotorSpeed = directionY * speed;
+
+  //Si directionX < 0 -> on veut aller à gauche 
+  //Si directionX > 0 -> on veut aller à droite
+  if(directionX > 0) {
+    if(currentLeftMotorSpeed == 0) {
+      currentLeftMotorSpeed = speed;
     }
-    else
-    {
-      Serial.println("oui");
+
+    currentRightMotorSpeed /= 2;
+  }
+  else if(directionX < 0) {
+    if(currentRightMotorSpeed == 0) {
+      currentRightMotorSpeed = speed;
     }
+    currentLeftMotorSpeed /= 2;
   }
 
-  // Serial.println("Test");
-  // digitalWrite(PORT_LED_FLASH, HIGH);
-  // delay(1000);
-  // digitalWrite(PORT_LED_FLASH, LOW);
-  // delay(1000);
+  if(currentLeftMotorSpeed > 255) currentLeftMotorSpeed = 255;
+  if(currentLeftMotorSpeed < -255) currentLeftMotorSpeed = -255;
+  if(currentRightMotorSpeed > 255) currentRightMotorSpeed = 255;
+  if(currentRightMotorSpeed < -255) currentRightMotorSpeed = -255;
+
+  motor.dcMotorRun(MOTOR_CHA, currentRightMotorSpeed);
+  motor.dcMotorRun(MOTOR_CHB, currentLeftMotorSpeed);
 
   // // drive 2 dc motors at speed=255, clockwise
   // Serial.println("run at speed=255");
@@ -280,5 +309,41 @@ void loop()
   // Serial.println("stop");
   // motor.dcMotorStop(MOTOR_CHA);
   // motor.dcMotorStop(MOTOR_CHB);
+  // delay(1000);
+}
+
+unsigned long messageInterval = 5000;
+unsigned long lastUpdate = millis();
+void loop()
+{
+  webSocket.loop();
+
+  // if (isSocketConnected && lastUpdate + messageInterval < millis())
+  // {
+  //   DEBUG_SERIAL.println("[WSc] SENT: Simple js client message!!");
+  //   webSocket.sendTXT("Simple js client message!!");
+  //   lastUpdate = millis();
+  // }
+
+  // if(isCameraConnected) {
+  //   camera_fb_t *fb = NULL;
+  //   fb = esp_camera_fb_get();
+  //   if (!fb)
+  //   {
+  //     Serial.println("Camera capture failed");
+  //     return;
+  //   }
+  //   else
+  //   {
+  //     Serial.println("oui");
+  //   }
+  // }
+
+  loopMotor();
+
+  // Serial.println("Test");
+  // digitalWrite(PORT_LED_FLASH, HIGH);
+  // delay(1000);
+  // digitalWrite(PORT_LED_FLASH, LOW);
   // delay(1000);
 }
