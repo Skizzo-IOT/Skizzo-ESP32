@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include "esp_camera.h"
+#include "base64.h"
 
 #include "Grove_Motor_Driver_TB6612FNG.h"
 #include <Wire.h>
@@ -29,7 +30,6 @@ const char *password = "mikamika";
 
 // const char *ssid = "lolosaint";
 // const char *password = "88C9BCD885";
-
 
 bool isSocketConnected = false;
 bool isCameraConnected = false;
@@ -190,40 +190,47 @@ void setupCamera()
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
+  
+  // if PSRAM IC present, init with UXGA resolution and higher JPEG quality
+  //                      for larger pre-allocated frame buffer.
+  if(psramFound()){
+    config.frame_size = FRAMESIZE_UXGA;
+    config.jpeg_quality = 10;
+    config.fb_count = 2;
+  } else {
+    config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 12;
+    config.fb_count = 1;
+  }
 
-  config.frame_size = FRAMESIZE_CIF; // FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
-  config.jpeg_quality = 10;
-  config.fb_count = 2;
+  #if defined(CAMERA_MODEL_ESP_EYE)
+    pinMode(13, INPUT_PULLUP);
+    pinMode(14, INPUT_PULLUP);
+  #endif
 
   // camera init
   esp_err_t err = esp_camera_init(&config);
-  if (err != ESP_OK)
-  {
+  if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
 
-  //   sensor_t *s = esp_camera_sensor_get();
-  //   // initial sensors are flipped vertically and colors are a bit saturated
-  //   if (s->id.PID == OV3660_PID)
-  //   {
-  //     s->set_vflip(s, 1);       // flip it back
-  //     s->set_brightness(s, 1);  // up the brightness just a bit
-  //     s->set_saturation(s, -2); // lower the saturation
-  //   }
-  //   // drop down frame size for higher initial frame rate
-  //   s->set_framesize(s, FRAMESIZE_QVGA);
+  sensor_t * s = esp_camera_sensor_get();
+  // initial sensors are flipped vertically and colors are a bit saturated
+  if (s->id.PID == OV3660_PID) {
+    s->set_vflip(s, 1); // flip it back
+    s->set_brightness(s, 1); // up the brightness just a bit
+    s->set_saturation(s, -2); // lower the saturation
+  }
+  // drop down frame size for higher initial frame rate
+  s->set_framesize(s, FRAMESIZE_QVGA);
 
-  // #if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
-  //   s->set_vflip(s, 1);
-  //   s->set_hmirror(s, 1);
-  // #endif
-
-  // startCameraServer();
-  Serial.print("Camera Ready! Use 'http://");
-  Serial.print(WiFi.localIP());
-  Serial.println("' to connect");
+  #if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
+    s->set_vflip(s, 1);
+    s->set_hmirror(s, 1);
+  #endif
   isCameraConnected = true;
+  DEBUG_SERIAL.println("Camera connectée.");
 }
 
 void setupMotor()
@@ -249,7 +256,7 @@ void setup()
   searchWifi();
   setupWifi();
   setupSocket();
-  // setupCamera();
+  setupCamera();
   setupMotor();
 }
 
@@ -292,56 +299,32 @@ void loopMotor() {
   // motor.dcMotorRun(MOTOR_CHA, 255);
   // motor.dcMotorRun(MOTOR_CHB, 255);
   // delay(1000);
-
-  // // brake
-  // Serial.println("brake");
-  // motor.dcMotorBrake(MOTOR_CHA);
-  // motor.dcMotorBrake(MOTOR_CHB);
-  // delay(1000);
-
-  // // drive 2 dc motors at speed=200, anticlockwise
-  // Serial.println("run at speed=-200");
-  // motor.dcMotorRun(MOTOR_CHA, -200);
-  // motor.dcMotorRun(MOTOR_CHB, -200);
-  // delay(1000);
-
-  // // stop 2 motors
-  // Serial.println("stop");
-  // motor.dcMotorStop(MOTOR_CHA);
-  // motor.dcMotorStop(MOTOR_CHB);
-  // delay(1000);
 }
 
-unsigned long messageInterval = 5000;
-unsigned long lastUpdate = millis();
+void camera() {
+  if(isCameraConnected && isSocketConnected) {
+    camera_fb_t *fb = NULL;
+    fb = esp_camera_fb_get();
+    if (!fb)
+    {
+      Serial.println("Camera capture failed");
+      return;
+    }
+
+    webSocket.sendBIN(fb->buf, fb->len);
+
+    esp_camera_fb_return(fb);
+  }
+}
+
 void loop()
 {
   webSocket.loop();
+  if(isSocketConnected) {
+    loopMotor();
+    camera();
+  }
 
-  // if (isSocketConnected && lastUpdate + messageInterval < millis())
-  // {
-  //   DEBUG_SERIAL.println("[WSc] SENT: Simple js client message!!");
-  //   webSocket.sendTXT("Simple js client message!!");
-  //   lastUpdate = millis();
-  // }
-
-  // if(isCameraConnected) {
-  //   camera_fb_t *fb = NULL;
-  //   fb = esp_camera_fb_get();
-  //   if (!fb)
-  //   {
-  //     Serial.println("Camera capture failed");
-  //     return;
-  //   }
-  //   else
-  //   {
-  //     Serial.println("oui");
-  //   }
-  // }
-
-  loopMotor();
-
-  // Serial.println("Test");
   // digitalWrite(PORT_LED_FLASH, HIGH);
   // delay(1000);
   // digitalWrite(PORT_LED_FLASH, LOW);
