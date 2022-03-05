@@ -198,7 +198,8 @@ void setupCamera()
   if(psramFound()){
     config.frame_size = FRAMESIZE_UXGA;
     config.jpeg_quality = 10;
-    config.fb_count = 2;
+    config.fb_count = 5;
+    DEBUG_SERIAL.println("PSRAMFOUND - FB_COUNT = 5");
   } else {
     config.frame_size = FRAMESIZE_SVGA;
     config.jpeg_quality = 12;
@@ -326,6 +327,7 @@ void loop()
     loopMotor();
     camera();
   }
+  delay(100);
 
   // digitalWrite(PORT_LED_FLASH, HIGH);
   // delay(1000);
