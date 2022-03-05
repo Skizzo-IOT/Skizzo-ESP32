@@ -20,7 +20,9 @@ int directionX = 0;
 int directionY = 0;
 
 // Socket
-const char *hostname = "192.168.43.104";
+//const char *hostname = "192.168.43.104";
+const char *hostname = "192.168.43.214";
+
 const int port = 3000;
 
 WebSocketsClient webSocket;
